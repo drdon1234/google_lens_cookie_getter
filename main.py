@@ -14,41 +14,55 @@ class GoogleImagesCookieExtractor:
         self.headless = headless
         self.timeout = timeout
         self.is_remote = remote_addr is not None
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+        self.extra_headers = {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "accept-encoding": "gzip, deflate, br",
+            "accept-language": "zh-CN,zh;q=0.9",
+            "cache-control": "no-cache",
+            "referer": "https://images.google.com/",
+            "sec-ch-ua": '"Not)A;Brand";v="8", "Chromium";v="138", "Google Chrome";v="138"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-fetch-site": "same-origin",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
+            "pragma": "no-cache",
+            "user-agent": self.user_agent
+        }
 
     def setup_driver(self):
         options = Options()
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
+        options.add_argument(f'--user-agent={self.user_agent}')
         options.add_argument('--lang=zh-CN')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         if self.headless:
             options.add_argument('--headless=new')
-        
-        if self.is_remote:
-            try:
+        try:
+            if self.is_remote:
                 self.driver = webdriver.Remote(
                     command_executor=self.remote_addr,
                     options=options
                 )
-                self.driver.set_page_load_timeout(self.timeout)
-                self.driver.set_script_timeout(self.timeout)
-                self.driver.implicitly_wait(0)
-                try:
-                    self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                except Exception:
-                    pass
-            except Exception:
-                sys.exit(1)
-        else:
-            self.driver = webdriver.Chrome(options=options)
+            else:
+                self.driver = webdriver.Chrome(options=options)
             self.driver.set_page_load_timeout(self.timeout)
             self.driver.set_script_timeout(self.timeout)
             self.driver.implicitly_wait(0)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            try:
+                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            except Exception:
+                pass
+            self.driver.execute_cdp_cmd('Network.enable', {})
+            self.driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {'headers': self.extra_headers})
+        except Exception as e:
+            print(f"初始化 WebDriver 失败: {e}")
+            sys.exit(1)
 
     def wait_page_ready(self):
         try:
@@ -85,21 +99,14 @@ class GoogleImagesCookieExtractor:
         self.wait_page_ready()
         cookie = self.extract_cookie()
         self.driver.quit()
-        
         if cookie:
             now = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
             return {"time": now, "cookie": cookie}
         return None
 
 def main():
-    remote_addr = None  # 默认使用本地模式
-    # 如果需要使用远程模式，取消下面的注释并设置地址
-    # remote_addr = 'http://localhost:4444/wd/hub'
-    extractor = GoogleImagesCookieExtractor(
-        remote_addr=remote_addr,
-        headless=True, 
-        timeout=30
-    )
+    remote_addr = None  # 默认本地运行，要用远程请写地址，如：'http://localhost:4444/wd/hub'
+    extractor = GoogleImagesCookieExtractor(remote_addr=remote_addr, headless=True, timeout=30)
     result = extractor.quick_run()
     if result:
         print("cookie获取成功！")
